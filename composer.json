@@ -1,0 +1,64 @@
+{
+    "name": "caixingyue/laravel-star-log",
+    "description": "This is a package that enhances the Laravel log format. It can inject request ID, craftsman ID, queue ID, and supports enhanced capabilities such as routing request log, HTTP client request log, SQL Query log, etc.",
+    "keywords": [
+        "caixingyue",
+        "laravel",
+        "laravel-star-log"
+    ],
+    "license": "MIT",
+    "support": {
+        "issues": "https://github.com/caixingyue/laravel-star-log/issues",
+        "source": "https://github.com/caixingyue/laravel-star-log"
+    },
+    "authors": [
+        {
+            "name": "xingyue cai",
+            "email": "xinghuangying@gmail.com",
+            "role": "Developer"
+        }
+    ],
+    "require": {
+        "php": "^8.2",
+        "spatie/laravel-package-tools": "^1.16",
+        "illuminate/contracts": "^10.0||^11.0",
+        "jenssegers/agent": "^2.6"
+    },
+    "require-dev": {
+        "nunomaduro/collision": "^8.1.1||^7.10.0",
+        "orchestra/testbench": "^9.0.0||^8.22.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Caixingyue\\LaravelStarLog\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Caixingyue\\LaravelStarLog\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": [
+            "@php vendor/bin/testbench package:discover --ansi"
+        ]
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Caixingyue\\LaravelStarLog\\StarLogServiceProvider"
+            ],
+            "aliases": {
+                "StarLog": "Caixingyue\\LaravelStarLog\\Facades\\StarLog"
+            }
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}
