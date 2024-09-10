@@ -2,11 +2,11 @@
 
 namespace Caixingyue\LaravelStarLog\Facades;
 
-use Caixingyue\LaravelStarLog\StarLog as StarLogService;
+use Caixingyue\LaravelStarLog\StarLog as StarLogImpl;
 use Illuminate\Support\Facades\Facade;
 
 /**
- * @mixin StarLogService
+ * @mixin StarLogImpl
  */
 class StarLog extends Facade
 {
@@ -17,6 +17,6 @@ class StarLog extends Facade
      */
     protected static function getFacadeAccessor(): string
     {
-        return StarLogService::class;
+        return StarLogImpl::class;
     }
 }

@@ -29,7 +29,7 @@ class QueryServiceProvider extends ServiceProvider
                 $flattenedSqlList = array_merge(...array_values($filteredData));
                 $flattenedSqlList = array_merge($flattenedSqlList, $exceptAll);
 
-                $exists = (bool) Arr::where($flattenedSqlList, fn ($sql) => Str::contains($query->sql, $sql));
+                $exists = (bool) Arr::where($flattenedSqlList, fn ($sql) => Str::contains($this->filter($query->sql), $this->filter($sql)));
                 if ($exists) return;
 
                 $bindings = Arr::map($query->bindings, function ($binding) {
@@ -46,5 +46,16 @@ class QueryServiceProvider extends ServiceProvider
                 Log::info($data);
             }
         });
+    }
+
+    /**
+     * Filter out some values in sql that will affect the judgment
+     *
+     * @param string $sql
+     * @return string
+     */
+    private function filter(string $sql): string
+    {
+        return str_replace(['"', "'", '`'], '', $sql);
     }
 }
