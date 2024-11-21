@@ -73,9 +73,9 @@ class RouteLog
      */
     private function setConfig(): void
     {
-        $this->except = StarLog::getConfig('except', []);
-        $this->exceptMethod = StarLog::getConfig('except_method', []);
-        $this->secretField = StarLog::getConfig('secret_fields', []);
+        $this->except = StarLog::getConfig('route.except', []);
+        $this->exceptMethod = StarLog::getConfig('route.except_method', []);
+        $this->secretField = StarLog::getConfig('route.secret_fields', []);
     }
 
     /**

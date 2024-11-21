@@ -49,7 +49,7 @@ class QueryServiceProvider extends ServiceProvider
     }
 
     /**
-     * Filter out some values in sql that will affect the judgment
+     * Filter out some values in sql that will affect the judgment.
      *
      * @param string $sql
      * @return string
@@ -57,5 +57,26 @@ class QueryServiceProvider extends ServiceProvider
     private function filter(string $sql): string
     {
         return str_replace(['"', "'", '`'], '', $sql);
+    }
+
+    /**
+     * Extract table names from SQL statements.
+     *
+     * @param string $sql
+     * @return string|null
+     */
+    private function extractTableName(string $sql): ?string
+    {
+        if (preg_match('/\bFROM\s+`?(\w+)`?/i', $sql, $matches)) {
+            return $matches[1];
+        } elseif (preg_match('/\bINTO\s+`?(\w+)`?/i', $sql, $matches)) {
+            return $matches[1];
+        } elseif (preg_match('/\bUPDATE\s+`?(\w+)`?/i', $sql, $matches)) {
+            return $matches[1];
+        } elseif (preg_match('/\bDELETE\s+FROM\s+`?(\w+)`?/i', $sql, $matches)) {
+            return $matches[1];
+        }
+
+        return null;
     }
 }
