@@ -2,6 +2,11 @@
 
 All notable changes to `laravel-star-log` will be documented in this file.
 
+## 1.0.3 (2024-12-18)
+
+- Change the package from `jenssegers/agent` to `mobiledetect/mobiledetectlib`.
+- Add agent class and apply it to routing log.
+
 ## 1.0.2 (2024-11-21)
 
 - Fix the problem of invalid request log configuration.

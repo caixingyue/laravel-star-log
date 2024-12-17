@@ -2,6 +2,7 @@
 
 namespace Caixingyue\LaravelStarLog\Http\Middleware;
 
+use Caixingyue\LaravelStarLog\Agent;
 use Caixingyue\LaravelStarLog\Facades\StarLog;
 use Closure;
 use Illuminate\Http\JsonResponse;
@@ -11,7 +12,6 @@ use Illuminate\Http\Response;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
-use Jenssegers\Agent\Facades\Agent;
 use JetBrains\PhpStorm\ArrayShape;
 
 /**
@@ -161,23 +161,27 @@ class RouteLog
      */
     public function getTerminalName(): string
     {
-        $agent = Agent::getFacadeRoot();
+        try {
+            $agent = new Agent();
 
-        $device = $agent->device();
-        $platform = $agent->platform();
+            $device = $agent->device();
+            $platform = $agent->platform();
 
-        $data = [$device, $platform];
+            $data = [$device, $platform];
 
-        if ($agent->isDesktop()) {
-            $data[] = 'PC端';
-        } elseif ($agent->isPhone()) {
-            $data[] = '移动端';
-        } else {
-            $data[] = '未知终端';
+            if ($agent->isDesktop()) {
+                $data[] = 'PC端';
+            } elseif ($agent->isMobile()) {
+                $data[] = '移动端';
+            } else {
+                $data[] = '未知终端';
+            }
+
+            $data = array_filter($data);
+            return implode('|', $data);
+        } catch (\Exception $e) {
+            return 'Unknown';
         }
-
-        $data = array_filter($data);
-        return implode('|', $data);
     }
 
     /**
