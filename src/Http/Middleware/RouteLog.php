@@ -5,13 +5,12 @@ namespace Caixingyue\LaravelStarLog\Http\Middleware;
 use Caixingyue\LaravelStarLog\Agent;
 use Caixingyue\LaravelStarLog\Facades\StarLog;
 use Closure;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\View\View;
 use JetBrains\PhpStorm\ArrayShape;
 
 /**
@@ -101,10 +100,10 @@ class RouteLog
      * The write response message to LOG
      *
      * @param Request $request
-     * @param JsonResponse|Response|RedirectResponse $response
+     * @param $response
      * @return void
      */
-    public function response(Request $request, JsonResponse|Response|RedirectResponse $response): void
+    public function response(Request $request, $response): void
     {
         if ($this->isExceptMethod($request) && $this->inExceptArray($request)) {
             $data = [
@@ -206,15 +205,21 @@ class RouteLog
     /**
      * Get response data, if data is json then parsing json to array
      *
-     * @param JsonResponse|Response|RedirectResponse $response
+     * @param $response
      * @return mixed
      */
-    public function getResponseData(JsonResponse|Response|RedirectResponse $response): mixed
+    public function getResponseData($response): mixed
     {
         $data = $response->getContent();
 
         if (Str::isJson($data)) {
             $data = json_decode($data, true);
+        } elseif ($response instanceof Response && $response->original instanceof View) {
+            $view = $response->original;
+            $viewName = $view->getName();
+            $viewData = $view->getData();
+
+            $data = ['view' => $viewName, 'data' => $viewData];
         }
 
         return $data;
@@ -270,8 +275,7 @@ class RouteLog
         $size = $file->getSize();
 
         // 给文件大小附加合适的单位
-        $unit = ['b', 'kb', 'mb', 'gb', 'tb', 'pb'];
-        $fileSizeSuffix = round($size / pow(1024, ($i = floor(log($size, 1024)))), $sizePrecision) . '' . $unit[$i];
+        $fileSizeSuffix = $this->formatFileSize($size);
 
         // 获取临时文件路径
         $path = $file->getRealPath();
@@ -285,5 +289,20 @@ class RouteLog
                 'path' => $path,
             ]
         ];
+    }
+
+    /**
+     * Append appropriate units to file sizes
+     *
+     * @param $size
+     * @return string
+     */
+    public function formatFileSize($size): string
+    {
+        $units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+        $factor = floor((strlen($size) - 1) / 3);
+        $formattedSize = $size / pow(1024, $factor);
+
+        return sprintf("%.2f%s", $formattedSize, $units[$factor]);
     }
 }
