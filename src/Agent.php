@@ -142,8 +142,16 @@ class Agent extends MobileDetect
                 continue;
             }
 
-            if ($this->match($regex, $userAgent)) {
-                return $key ?: reset($this->matchesArray);
+            if (is_array($regex)) {
+                foreach ($regex as $regexItem) {
+                    if ($this->match($regexItem, $userAgent)) {
+                        return $key ?: reset($this->matchesArray);
+                    }
+                }
+            } else {
+                if ($this->match($regex, $userAgent)) {
+                    return $key ?: reset($this->matchesArray);
+                }
             }
         }
 
