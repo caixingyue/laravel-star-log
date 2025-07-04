@@ -2,6 +2,10 @@
 
 All notable changes to `laravel-star-log` will be documented in this file.
 
+## 1.0.6 (2025-07-04)
+
+- Optimize HTTP client response log. If the response result is a binary stream, record "(binary stream)" instead of directly recording the entire binary data.
+
 ## 1.0.5 (2025-01-20)
 
 - Fix the abnormality of obtaining device.

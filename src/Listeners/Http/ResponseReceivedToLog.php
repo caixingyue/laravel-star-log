@@ -31,6 +31,7 @@ class ResponseReceivedToLog
 
             $data = implode(' - ', $data);
             $responseData = $this->getResponseData($event->response);
+
             if (is_array($responseData)) {
                 Log::info("{$data} - 响应报文:", $responseData);
             } else {
@@ -48,11 +49,50 @@ class ResponseReceivedToLog
     public function getResponseData(Response $response): mixed
     {
         $data = $response->body();
+        $contentType = $response->header('Content-Type');
 
-        if (Str::isJson($data)) {
+        if ($this->isBinaryContent($contentType)) {
+            return '(二进制流)';
+        } elseif (Str::isJson($data)) {
             $data = json_decode($data, true);
         }
 
         return $data;
+    }
+
+    /**
+     * Check if the data content is a binary file stream
+     *
+     * @param string|null $contentType
+     * @return bool
+     */
+    private function isBinaryContent(?string $contentType): bool
+    {
+        if (is_null($contentType)) {
+            return false;
+        }
+
+        $binaryTypes = [
+            'application/octet-stream',
+            'application/pdf',
+            'application/zip',
+            'application/x-tar',
+            'application/x-gzip',
+            'application/x-7z-compressed',
+            'application/msword',
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument',
+            'image/',
+            'video/',
+            'audio/',
+        ];
+
+        foreach ($binaryTypes as $type) {
+            if (str_starts_with($contentType, $type)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
