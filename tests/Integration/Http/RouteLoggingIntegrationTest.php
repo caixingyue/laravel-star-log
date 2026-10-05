@@ -55,7 +55,7 @@ final class RouteLoggingIntegrationTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
     }
 
-    public function test_request_and_response_messages_preserve_the_decoded_path(): void
+    public function test_request_and_response_messages_preserve_the_encoded_path(): void
     {
         $request = Request::create('/orders%0aexport');
         $response = new JsonResponse(['ok' => true]);
@@ -63,7 +63,8 @@ final class RouteLoggingIntegrationTest extends TestCase
         (new RouteLog)->handle($request, fn () => $response);
         Event::dispatch(new RequestHandled($request, $response));
 
-        Log::shouldHaveReceived('info')->withArgs(static fn ($message): bool => str_contains($message, "orders\nexport"))->twice();
+        Log::shouldHaveReceived('info')->withArgs(static fn ($message): bool => str_contains($message, 'orders%0aexport')
+            && ! str_contains($message, "\n"))->twice();
     }
 
     public function test_records_redacted_request_and_json_response_data(): void

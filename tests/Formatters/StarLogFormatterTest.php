@@ -187,7 +187,8 @@ final class StarLogFormatterTest extends TestCase
     public function test_formats_the_ips_of_an_http_request(): void
     {
         $container = new Container;
-        $container->instance(Request::class, Request::create('/', 'GET', [], [], [], ['REMOTE_ADDR' => '203.0.113.10']));
+        $container->instance('request', Request::create('/', 'GET', [], [], [], ['REMOTE_ADDR' => '203.0.113.10']));
+        $container->alias('request', Request::class);
 
         $this->assertRequestIps($container, '203.0.113.10');
     }
