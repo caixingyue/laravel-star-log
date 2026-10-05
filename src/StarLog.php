@@ -2,244 +2,307 @@
 
 namespace Caixingyue\LaravelStarLog;
 
-use Caixingyue\LaravelStarLog\Support\UniqueId;
+use Caixingyue\LaravelStarLog\Correlation\CorrelationContext;
+use Caixingyue\LaravelStarLog\Http\Client\HttpClientLogState;
+use Caixingyue\LaravelStarLog\Query\QueryLogState;
+use Caixingyue\LaravelStarLog\Support\DailyIdGenerator;
+use Closure;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Request;
-use Illuminate\Support\Arr;
-use Illuminate\Support\Str;
+use OverflowException;
+use RuntimeException;
 
 readonly class StarLog
 {
+    private CorrelationContext $correlationContext;
+
     /**
      * Create a new star log instance.
      */
     public function __construct(
         private Request $request,
-        private array   $config = []
-    ) {}
+        private array $config,
+        DailyIdGenerator $idGenerator,
+        private QueryLogState $queryLogState,
+        private HttpClientLogState $httpClientLogState = new HttpClientLogState,
+    ) {
+        $this->correlationContext = new CorrelationContext($idGenerator);
+    }
 
     /**
-     * Get Request ID
-     *
-     * @return int|null
+     * Get the complete correlation chain for the active execution context.
+     */
+    public function getCorrelationChain(): array
+    {
+        return $this->correlationContext->getCorrelationChain();
+    }
+
+    /**
+     * Get the correlation item for the currently executing unit.
+     */
+    public function getCurrentCorrelation(): ?array
+    {
+        return $this->correlationContext->getCurrentCorrelation();
+    }
+
+    /**
+     * Get the correlation item that directly invoked the current unit.
+     */
+    public function getParentCorrelation(): ?array
+    {
+        return $this->correlationContext->getParentCorrelation();
+    }
+
+    /**
+     * Get the request correlation ID.
      */
     public function getRequestId(): ?int
     {
-        return $this->getAvailableObjectId($this->request, 'requestId', 'request');
+        return $this->correlationContext->getRequestId();
     }
 
     /**
-     * Get Artisan ID
-     *
-     * @param object|string|null $object
-     * @return int|null
+     * Get the current or nearest preceding Artisan command correlation ID.
      */
-    public function getArtisanId(object|string $object = null): ?int
+    public function getArtisanId(): ?int
     {
-        return $this->getAvailableObjectId($object, 'artisanId', 'artisan');
+        return $this->correlationContext->getArtisanId();
     }
 
     /**
-     * Get Queue ID
-     *
-     * @param object|string|null $object
-     * @return int|null
+     * Get the current or nearest preceding queue job correlation ID.
      */
-    public function getQueueId(object|string $object = null): ?int
+    public function getQueueId(): ?int
     {
-        return $this->getAvailableObjectId($object, 'queueId', 'queue');
+        return $this->correlationContext->getQueueId();
     }
 
     /**
-     * Get injection object id
-     *
-     * @param object|string $object
-     * @return int|null
+     * Get the nearest Artisan correlation ID before the current execution unit.
      */
-    public function getInjectionObjectId(object|string $object): ?int
+    public function getNearestArtisanId(): ?int
     {
-        return Arr::get($this->getInjectionLastObject($object), 'id');
+        return $this->correlationContext->getNearestArtisanId();
     }
 
     /**
-     * Get last a injection object info
-     *
-     * @param object|string $object
-     * @return array
+     * Get the nearest queue correlation ID before the current execution unit.
      */
-    public function getInjectionLastObject(object|string $object): array
+    public function getNearestQueueId(): ?int
     {
-        return Arr::last($this->getInjectionObject($object), default: []);
+        return $this->correlationContext->getNearestQueueId();
     }
 
     /**
-     * Get injection object lists
-     *
-     * @param object|string $object
-     * @return array
+     * Get the first and current items for the default log format.
      */
-    public function getInjectionObject(object|string $object): array
+    public function getDisplayCorrelations(): array
     {
-        $objectName = $this->getObjectName($object);
-        return Arr::where($this->getStarLogIds(), function (array $item) use ($objectName) {
-            return Str::contains($item['name'], $objectName);
-        });
+        return $this->correlationContext->getDisplayCorrelations();
     }
 
     /**
-     * Get object available id
-     *
-     * @param object|string|null $object
-     * @param string|null $key
-     * @param string|null $type
-     * @return int|null
+     * Replace the active correlation chain.
      */
-    public function getAvailableObjectId(object|string $object = null, string $key = null, string $type = null): ?int
+    public function setCorrelationChain(array $chain): void
     {
-        if ($id = data_get($object, $key)) {
-            return $id;
+        $this->correlationContext->setCorrelationChain($chain);
+    }
+
+    /**
+     * Start a new correlation chain for the current HTTP request.
+     *
+     * @throws RuntimeException
+     * @throws OverflowException
+     * @throws LockTimeoutException
+     */
+    public function startRequestCorrelation(): int
+    {
+        $this->queryLogState->resetEntryCount();
+
+        return $this->correlationContext->startRequestCorrelation($this->request);
+    }
+
+    /**
+     * Append a new Artisan correlation ID to the active chain.
+     *
+     * @throws RuntimeException
+     * @throws OverflowException
+     * @throws LockTimeoutException
+     */
+    public function appendArtisanCorrelation(object|string $object): int
+    {
+        return $this->correlationContext->appendArtisanCorrelation($object);
+    }
+
+    /**
+     * Create a queue correlation chain without changing the active context.
+     *
+     * @throws RuntimeException
+     * @throws OverflowException
+     * @throws LockTimeoutException
+     */
+    public function createQueueCorrelationChain(object|string $object): array
+    {
+        return $this->correlationContext->createQueueCorrelationChain($object);
+    }
+
+    /**
+     * Generate an ID that does not collide with the active correlation chain.
+     *
+     * @throws RuntimeException
+     * @throws OverflowException
+     * @throws LockTimeoutException
+     */
+    public function generateCorrelationId(): int
+    {
+        return $this->correlationContext->generateCorrelationId();
+    }
+
+    /**
+     * Get star log config.
+     */
+    public function getConfig(?string $key = null, mixed $default = null): mixed
+    {
+        $config = $this->config;
+        $section = $key === null ? null : explode('.', $key, 2)[0];
+
+        if ($section === null || $section === 'http_client') {
+            $config['http_client'] = $this->httpClientLogState->resolve(is_array($config['http_client'] ?? null) ? $config['http_client'] : []);
         }
 
-        if ($id = $this->request->attributes->get($key)) {
-            return $id;
+        if ($section === null || $section === 'query') {
+            $config['query'] = $this->queryLogState->resolve(is_array($config['query'] ?? null) ? $config['query'] : []);
         }
 
-        if ($object && $id = $this->getInjectionObjectId($object)) {
-            return $id;
-        }
-
-        $typeData = Arr::last($this->getStarLogIds(), function (array $item) use ($type) {
-            return $item['type'] === $type;
-        }, []);
-
-        return Arr::get($typeData, 'id');
+        return $key ? data_get($config, $key, $default) : $config;
     }
 
     /**
-     * Get all injection id list
-     *
-     * @return array
+     * Translate one package log message using its configured locale or configured application locale.
      */
-    public function getInjectionIds(): array
+    public function translate(string $key, array $replace = []): string
     {
-        return $this->getStarLogIds();
+        $locale = $this->getConfig('locale') ?? config('app.locale');
+
+        return __('star-log::star-log.' . $key, $replace, $locale);
     }
 
     /**
-     * Get a list of injection IDs for all fields
-     *
-     * @return array
+     * Ignore SQL logging for a primary table until it is resumed.
      */
-    private function getStarLogIds(): array
+    public function ignoreQueryTable(string $table): void
     {
-        return $this->request->attributes->get('starLogIds', []);
+        $this->queryLogState->ignoreTable($table);
     }
 
     /**
-     * Load object star log ids
-     *
-     * @param object|string $object
-     * @return void
+     * Restore SQL logging for one ignored primary table level.
      */
-    public function loadObjectStarLogIds(object|string $object): void
+    public function resumeQueryTable(string $table): void
     {
-        $data = data_get($object, 'starLogIds', []);
-        $this->setStarLogIds($data);
+        $this->queryLogState->resumeTable($table);
     }
 
     /**
-     * Set star log ids
-     *
-     * @param array $data
-     * @return void
+     * Run a callback without writing SQL logs.
      */
-    public function setStarLogIds(array $data): void
+    public function withoutQueryLogging(Closure $callback): mixed
     {
-        $this->request->attributes->set('starLogIds', $data);
+        return $this->queryLogState->withoutLogging($callback);
     }
 
     /**
-     * Append a new request id to the object
+     * Run a callback without logging queries for the specified primary tables.
      *
-     * @return int
+     * @param  array<int, string>  $tables
      */
-    public function appendRequestId(): int
+    public function withoutQueryLoggingForTables(array $tables, Closure $callback): mixed
     {
-        $requestId = UniqueId::generate(10);
-
-        $this->append($requestId, $this->request, 'request');
-
-        $this->request->attributes->add(compact('requestId'));
-
-        return $requestId;
+        return $this->queryLogState->withoutTables($tables, $callback);
     }
 
     /**
-     * Append a new artisan task id to the object
-     *
-     * @param object|string $object
-     * @return int
+     * Run a callback with HTTP client logging enabled, unless an outer scope paused it.
      */
-    public function appendArtisanTaskId(object|string $object): int
+    public function withHttpClientLogging(Closure $callback): mixed
     {
-        $taskId = UniqueId::generate(8);
-
-        $this->append($taskId, $object, 'artisan');
-
-        return $taskId;
+        return $this->withHttpClientLogOptions(['enable' => true], $callback);
     }
 
     /**
-     * Append a new queue task id to the object
-     *
-     * @param object|string $object
-     * @return int
+     * Run a callback without HTTP client request, response, or connection failure logs.
      */
-    public function appendQueueTaskId(object|string $object): int
+    public function withoutHttpClientLogging(Closure $callback): mixed
     {
-        $taskId = UniqueId::generate(8);
-
-        $this->append($taskId, $object, 'queue');
-
-        return $taskId;
+        return $this->httpClientLogState->withoutLogging($callback);
     }
 
     /**
-     * Append a new id object to the chain
-     *
-     * @param int $id
-     * @param object|string $object
-     * @param string $type
-     * @return void
+     * Temporarily override HTTP client log options; header lists replace inherited lists.
      */
-    private function append(int $id, object|string $object, string $type): void
+    public function withHttpClientLogOptions(array $options, Closure $callback): mixed
     {
-        $ids = $this->getStarLogIds();
-
-        $ids[] = ['id' => $id, 'name' => get_class($object), 'type' => $type];
-
-        $this->setStarLogIds($ids);
+        return $this->httpClientLogState->withOptions($options, $callback);
     }
 
     /**
-     * Get star log config
-     *
-     * @param string|null $key
-     * @param mixed|null $default
-     * @return mixed
+     * Temporarily mask HTTP client headers, query fields, and body fields matching these paths.
      */
-    public function getConfig(string $key = null, mixed $default = null): mixed
+    public function withHttpClientSensitiveFields(array $fields, Closure $callback): mixed
     {
-        return $key ? Arr::get($this->config, $key, $default) : $this->config;
+        return $this->httpClientLogState->withSensitiveFields($fields, true, $callback);
     }
 
     /**
-     * Get object class name
-     *
-     * @param object|string $object
-     * @return string
+     * Temporarily allow matching HTTP client fields to be logged without masking.
      */
-    public function getObjectName(object|string $object): string
+    public function withoutHttpClientSensitiveFields(array $fields, Closure $callback): mixed
     {
-        return is_object($object) ? get_class($object) : $object;
+        return $this->httpClientLogState->withSensitiveFields($fields, false, $callback);
+    }
+
+    /**
+     * Run a callback with SQL logging enabled, while retaining pauses and other filters.
+     */
+    public function withQueryLogging(Closure $callback): mixed
+    {
+        return $this->withQueryLogOptions(['enable' => true], $callback);
+    }
+
+    /**
+     * Temporarily override SQL log options without resetting the execution's entry count.
+     */
+    public function withQueryLogOptions(array $options, Closure $callback): mixed
+    {
+        return $this->queryLogState->withOptions($options, $callback);
+    }
+
+    /**
+     * Temporarily mask verified SQL binding columns, overriding model column settings.
+     *
+     * @param  array<string, array<int, string>>  $columns  Table names (or *) mapped to column names.
+     */
+    public function withQuerySensitiveColumns(array $columns, Closure $callback): mixed
+    {
+        return $this->queryLogState->withSensitiveColumns($columns, true, $callback);
+    }
+
+    /**
+     * Temporarily cancel masking for verified columns; disabled bindings stay hidden.
+     *
+     * @param  array<string, array<int, string>>  $columns  Table names (or *) mapped to column names.
+     */
+    public function withoutQuerySensitiveColumns(array $columns, Closure $callback): mixed
+    {
+        return $this->queryLogState->withSensitiveColumns($columns, false, $callback);
+    }
+
+    /**
+     * Add a predicate to the existing SQL log filters while the callback runs.
+     */
+    public function withQueryLogFilter(Closure $filter, Closure $callback): mixed
+    {
+        return $this->queryLogState->withFilter($filter, $callback);
     }
 }

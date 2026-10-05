@@ -1,0 +1,23 @@
+{
+    "preset": "laravel",
+    "rules": {
+        "fully_qualified_strict_types": {
+            "import_symbols": false
+        },
+        "blank_line_before_statement": {
+            "statements": [
+                "continue",
+                "return",
+                "if",
+                "foreach",
+                "for",
+                "while",
+                "switch",
+                "try"
+            ]
+        },
+        "concat_space": {
+            "spacing": "one"
+        }
+    }
+}

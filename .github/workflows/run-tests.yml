@@ -1,0 +1,105 @@
+name: tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - php: '8.2'
+            laravel: '^12.69'
+          - php: '8.2'
+            laravel: '^12.69'
+            prefer_lowest: '--prefer-lowest'
+          - php: '8.5'
+            laravel: '^12.69'
+          - php: '8.3'
+            laravel: '^13.30'
+          - php: '8.3'
+            laravel: '^13.30'
+            prefer_lowest: '--prefer-lowest'
+          - php: '8.4'
+            laravel: '^13.30'
+          - php: '8.5'
+            laravel: '^13.30'
+
+    name: PHP ${{ matrix.php }} / Laravel ${{ matrix.laravel }} ${{ matrix.prefer_lowest }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: dom, mbstring, pdo_sqlite, zip
+          coverage: none
+
+      - name: Validate package
+        run: composer validate --strict
+
+      - name: Select Laravel version
+        run: composer require --no-update "laravel/framework:${{ matrix.laravel }}"
+
+      - name: Install dependencies
+        run: composer update --prefer-dist --no-interaction --no-progress --with-all-dependencies ${{ matrix.prefer_lowest }}
+
+      - name: Audit dependencies
+        run: composer audit --locked
+
+      - name: Run tests
+        run: composer test
+
+      - name: Verify release archives
+        if: matrix.php == '8.3' && matrix.prefer_lowest != '--prefer-lowest'
+        run: |
+          composer archive --format=zip --dir=build --file=release
+          git archive --format=zip --output=build/git-release.zip HEAD
+          git show HEAD:composer.json > build/committed-composer.json
+          php <<'PHP'
+          <?php
+          foreach (['build/release.zip', 'build/git-release.zip'] as $archive) {
+              $zip = new ZipArchive;
+              if ($zip->open($archive) !== true) {
+                  throw new RuntimeException('Cannot open release archive: ' . $archive);
+              }
+              for ($index = 0; $index < $zip->numFiles; $index++) {
+                  $name = $zip->getNameIndex($index);
+                  if (preg_match('~^(?:tests|vendor|\.git|\.github|build|\.phpunit[^/]*)(?:/|$)|(?:^|/)(?:\.env(?:\.|$)|\.DS_Store$)|^(?:composer\.lock|phpunit\.xml\.dist|pint\.json|\.gitattributes|\.gitignore)$~', $name)) {
+                      throw new RuntimeException('Unexpected release file in ' . $archive . ': ' . $name);
+                  }
+              }
+              foreach (['src', 'config', 'resources'] as $directory) {
+                  foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($directory, FilesystemIterator::SKIP_DOTS)) as $file) {
+                      if ($file->isFile() && $zip->getFromName($file->getPathname()) !== file_get_contents($file->getPathname())) {
+                          throw new RuntimeException('Missing or stale release file in ' . $archive . ': ' . $file->getPathname());
+                      }
+                  }
+              }
+              foreach (['composer.json', 'README.md', 'SECURITY.md', 'LICENSE.md', 'CHANGELOG.md'] as $name) {
+                  // CI selects one Laravel branch in the working manifest; Git archives the committed manifest.
+                  $expected = $archive === 'build/git-release.zip' && $name === 'composer.json'
+                      ? file_get_contents('build/committed-composer.json')
+                      : file_get_contents($name);
+                  if ($zip->getFromName($name) !== $expected) {
+                      throw new RuntimeException('Missing or stale release document in ' . $archive . ': ' . $name);
+                  }
+              }
+              $zip->close();
+              echo 'Release archive verified: ' . $archive . PHP_EOL;
+          }
+          PHP

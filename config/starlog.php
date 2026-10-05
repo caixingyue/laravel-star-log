@@ -2,98 +2,249 @@
 
 return [
 
+    // Locale used for this package's log messages; null uses the configured app.locale.
+    'locale' => null,
+
     /*
     |--------------------------------------------------------------------------
-    | Routing Configuration
+    | Route Logging Configuration
     |--------------------------------------------------------------------------
     |
-    | Below you can configure the routing request log manager related parameters as needed.
-    |
-    | response_head_id: If true, the request ID will be added to the response header.
-    | except: The URIs that should be excluded from LOG record.
-    | except_method: The method that should be excluded from LOG record.
-    | secret_fields: The field should be replaced by "******" from the LOG
+    | Configure request IDs and incoming HTTP request and response logs.
+    | Run AssignRequestId before RouteLog to attach request IDs to these logs.
     |
     */
 
     'route' => [
-        'response_head_id' => env('STAR_LOG_RESPONSE_HEAD_ID', false),
+        'request_id' => [
+            // Response header name for the generated request ID; null disables the header.
+            'response_header' => null,
 
-        'except' => [
-            //
+            // Add request_id to Laravel log records created during this request.
+            'share_log_context' => true,
         ],
 
-        'except_method' => [
-            //
+        // Exclude matching routes from request and response logs; request IDs are unaffected.
+        'ignore' => [
+            // Request path or full URL patterns, such as health or telescope/*.
+            'paths' => [],
+
+            // HTTP methods to exclude, such as OPTIONS or HEAD.
+            'methods' => [],
+
+            // Exact route names to exclude, such as horizon.stats.
+            'route_names' => [],
         ],
 
-        'secret_fields' => [
+        // Field paths and header names whose values are masked in route request and response logs.
+        // Use profile.token for a nested field or items.*.token for the token in each list item.
+        'sensitive_fields' => [
             'current_password',
             'password',
             'password_confirmation',
+            'token',
+            'access_token',
+            'refresh_token',
+            '_token',
+            'authorization',
+        ],
+
+        'request' => [
+            // Request header names to write to logs; [] records none.
+            // Names match exactly without regard to casing; wildcards are not supported.
+            'headers' => [],
+
+            // Include query parameters in the request log.
+            'query' => true,
+
+            // Include request body data in the request log.
+            'body' => true,
+        ],
+
+        'response' => [
+            // Response header names to write to logs; [] records none.
+            // Names match exactly without regard to casing; wildcards are not supported.
+            'headers' => [],
+
+            // Include response body data in the response log.
+            'body' => true,
+
+            // Include view data when the response is rendered from a view.
+            'view_data' => false,
+        ],
+
+        'limits' => [
+            // Maximum characters in an individual string value; null leaves it unbounded.
+            'max_string_length' => 1024,
+
+            // Maximum characters of text body content written to logs; null disables this limit.
+            // JSON, form data, and HTML are parsed in full, then use the field and array limits.
+            'max_body_length' => 4096,
+
+            // Maximum items retained from one array; null leaves it unbounded.
+            'max_array_items' => 50,
+
+            // Maximum nesting depth of logged data; null uses the built-in maximum of 64.
+            'max_depth' => 8,
         ],
     ],
 
     /*
     |--------------------------------------------------------------------------
-    | HTTP Client Configuration
+    | HTTP Client Logging Configuration
     |--------------------------------------------------------------------------
     |
-    | Below you can configure the relevant parameters of the HTTP client request as needed.
-    |
-    | enable: If false, each http request and response result log will no longer be automatically recorded.
-    | secret_fields: The field should be replaced by "******" from the LOG
+    | Here you may configure request and response logs emitted through
+    | Laravel's HTTP client.
     |
     */
 
-    'http' => [
+    'http_client' => [
+        // Record outgoing HTTP requests, responses, and connection failures when true.
         'enable' => env('STAR_LOG_ENABLE_HTTP_CLIENT', false),
 
-        'secret_fields' => [
-            'current_password',
+        'request' => [
+            // Record outgoing request logs when true; HTTP client logging must also be enabled.
+            'enable' => true,
+
+            // Request header names to write to logs; [] records none.
+            // Names match exactly without regard to casing; wildcards are not supported.
+            'headers' => [],
+
+            // Include URL query parameters in request, response, and connection failure logs.
+            'query' => true,
+
+            // Include request body data in the request log.
+            'body' => true,
+        ],
+
+        'response' => [
+            // Record received response logs when true; HTTP client logging must also be enabled.
+            'enable' => true,
+
+            // Response header names to write to logs; [] records none.
+            // Names match exactly without regard to casing; wildcards are not supported.
+            'headers' => [],
+
+            // Include response body data in the response log.
+            'body' => true,
+        ],
+
+        'connection_failure' => [
+            // Record connection failures when true; HTTP client logging must also be enabled.
+            'enable' => true,
+        ],
+
+        // Field paths and header names whose values are masked in HTTP client logs.
+        // Use profile.token for a nested field or items.*.token for the token in each list item.
+        // Add username or password to mask that component in URL credentials.
+        'sensitive_fields' => [
             'password',
-            'password_confirmation',
+            'token',
+            'access_token',
+            'refresh_token',
+            'authorization',
+        ],
+
+        'limits' => [
+            // Maximum characters in an individual string value; null leaves it unbounded.
+            'max_string_length' => 1024,
+
+            // Maximum characters of text body content written to logs; null disables this limit.
+            // JSON, form data, and HTML are parsed in full, then use the field and array limits.
+            'max_body_length' => 4096,
+
+            // Maximum items retained from one array; null leaves it unbounded.
+            'max_array_items' => 50,
+
+            // Maximum nesting depth of logged data; null uses the built-in maximum of 64.
+            'max_depth' => 8,
         ],
     ],
 
     /*
     |--------------------------------------------------------------------------
-    | SQL Query Configuration
+    | SQL Query Logging Configuration
     |--------------------------------------------------------------------------
     |
-    | Below you can configure the relevant parameters of the SQL query log as needed.
-    |
-    | enable: If false, each sql query log will no longer be automatically recorded.
-    | except: The URIs that should be excluded from LOG record.
-    | except.*: This option will exclude all SQL, not limited to a certain class.
+    | Here you may configure SQL query logs emitted by Laravel's database
+    | query events.
     |
     */
 
     'query' => [
+        // Enable SQL query logging.
         'enable' => env('STAR_LOG_ENABLE_SQL_QUERY', false),
 
-        'except' => [
-            '*' => [
-                'into sessions',
-                'into cache',
-                'into cache_locks',
-                'into jobs',
-                'into job_batches',
-                'into failed_jobs',
+        // Record a query only when its duration reaches this number of milliseconds.
+        'min_time' => 0,
 
-                'from sessions',
-                'from cache',
-                'from cache_locks',
-                'from jobs',
-                'from job_batches',
-                'from failed_jobs',
+        // Probability of recording an eligible query: 0.0 (never) to 1.0 (always).
+        'sample_rate' => 1.0,
 
-                'update sessions',
-                'update cache',
-                'update cache_locks',
-                'update jobs',
-                'update job_batches',
-                'update failed_jobs',
+        // Maximum SQL entries for the current request, command, or queue job; null leaves it unbounded.
+        'max_entries' => null,
+
+        // Maximum SQL text length in characters; null leaves it unbounded.
+        'max_sql_length' => 4096,
+
+        'bindings' => [
+            // Record binding values when true; false replaces them with [hidden].
+            'enable' => false,
+
+            // Maximum characters in each string binding value; null disables truncation.
+            'max_length' => 1024,
+
+            // Maximum bindings included in one SQL log entry; null uses the built-in limits.
+            'max_count' => 50,
+
+            // Binding log settings by table and column; * supplies defaults for all tables.
+            // Table settings override these defaults; model settings override table settings.
+            // sensitive masks a verified column's value; max_length limits its string values.
+            // max_length accepts a positive integer or null; unmapped bindings are not masked.
+            'columns' => [
+                '*' => [
+                    'password' => ['sensitive' => true],
+                ],
+            ],
+        ],
+
+        // SQL statements matching these rules will not be written to log files.
+        // Use table to match the main table, or contains for a string or array of SQL fragments.
+        // When contains is an array, every fragment must be present in the same SQL statement.
+        // If both are configured in one rule, both must match.
+        'ignore' => [
+            // Exclusion rules for SQL issued by any class.
+            'global' => [
+                //
+            ],
+
+            // Exclusion rules for SQL whose detected calling class matches the specified class.
+            'classes' => [
+                Illuminate\Auth\EloquentUserProvider::class => [
+                    ['table' => 'users'],
+                ],
+                Illuminate\Session\DatabaseSessionHandler::class => [
+                    ['table' => 'sessions'],
+                ],
+                Illuminate\Cache\DatabaseStore::class => [
+                    ['table' => 'cache'],
+                ],
+                Illuminate\Cache\DatabaseLock::class => [
+                    ['table' => 'cache_locks'],
+                ],
+                Illuminate\Queue\DatabaseQueue::class => [
+                    ['table' => 'jobs'],
+                ],
+                Illuminate\Bus\DatabaseBatchRepository::class => [
+                    ['table' => 'job_batches'],
+                ],
+                Illuminate\Queue\Failed\DatabaseFailedJobProvider::class => [
+                    ['table' => 'failed_jobs'],
+                ],
+                Illuminate\Queue\Failed\DatabaseUuidFailedJobProvider::class => [
+                    ['table' => 'failed_jobs'],
+                ],
             ],
         ],
     ],

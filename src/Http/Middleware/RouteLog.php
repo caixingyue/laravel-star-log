@@ -2,307 +2,242 @@
 
 namespace Caixingyue\LaravelStarLog\Http\Middleware;
 
-use Caixingyue\LaravelStarLog\Agent;
 use Caixingyue\LaravelStarLog\Facades\StarLog;
+use Caixingyue\LaravelStarLog\Support\HttpContentType;
+use Caixingyue\LaravelStarLog\Support\HttpLogDataNormalizer;
+use Caixingyue\LaravelStarLog\Support\UserAgentDetector;
 use Closure;
+use GuzzleHttp\Psr7\Utils;
 use Illuminate\Http\Request;
-use Illuminate\Http\Response;
-use Illuminate\Http\UploadedFile;
+use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
-use Illuminate\View\View;
-use JetBrains\PhpStorm\ArrayShape;
+use Throwable;
 
 /**
- * Log manager for routing requests and responses
+ * Record an incoming HTTP request.
  */
 class RouteLog
 {
     /**
-     * The URIs that should be excluded from LOG record.
-     *
-     * @var array
+     * The request attribute used to retain route log state until the final response is available.
      */
-    protected array $except = [
-        //
-    ];
-
-    /**
-     * The method that should be excluded from LOG record.
-     *
-     * @var array
-     */
-    protected array $exceptMethod = [
-//        'GET'
-    ];
-
-    /**
-     * The field should be replaced by "******" from the LOG
-     *
-     * @var array
-     */
-    protected array $secretField = [
-        //
-    ];
+    public const STATE_ATTRIBUTE = 'starlog.route_log';
 
     /**
      * Handle an incoming request.
-     *
-     * @param Request $request
-     * @param Closure $next
-     * @return mixed
      */
     public function handle(Request $request, Closure $next): mixed
     {
-        $this->setConfig();
-
-        $this->request($request);
-
-        $response = $next($request);
-
-        $this->response($request, $response);
-
-        return $response;
-    }
-
-    /**
-     * Set config info
-     *
-     * @return void
-     */
-    private function setConfig(): void
-    {
-        $this->except = StarLog::getConfig('route.except', []);
-        $this->exceptMethod = StarLog::getConfig('route.except_method', []);
-        $this->secretField = StarLog::getConfig('route.secret_fields', []);
-    }
-
-    /**
-     * The write request message to LOG
-     *
-     * @param Request $request
-     */
-    public function request(Request $request): void
-    {
-        if ($this->isExceptMethod($request) && $this->inExceptArray($request)) {
-            $data = [
-                Str::of('[')->append($this->getTerminalName())->append(']'),
-                Str::of('[')->append($request->ip())->append(']'),
-                Str::of($request->getMethod())->append('[')->append($request->decodedPath())->append(']')
-            ];
-
-            $data = implode(' - ', $data);
-            Log::info("{$data} - 请求报文:", $this->getRequestData($request));
-        }
-    }
-
-    /**
-     * The write response message to LOG
-     *
-     * @param Request $request
-     * @param $response
-     * @return void
-     */
-    public function response(Request $request, $response): void
-    {
-        if ($this->isExceptMethod($request) && $this->inExceptArray($request)) {
-            $data = [
-                Str::of('耗时[')->append($this->getElapsedTime($request))->append(']'),
-                Str::of('内存消耗[')->append($this->getMemoryUsage())->append(']')
-            ];
-
-            $data = implode(' - ', $data);
-            $responseData = $this->getResponseData($response);
-            if (is_array($responseData)) {
-                Log::info("{$data} - 响应报文:", $responseData);
-            } else {
-                Log::info("{$data} - 响应报文: {$responseData}");
-            }
-        }
-    }
-
-    /**
-     * Determines whether the HTTP request has a verb that should be verb.
-     *
-     * @param Request $request
-     * @return bool
-     */
-    public function isExceptMethod(Request $request): bool
-    {
-        return !in_array($request->method(), $this->exceptMethod);
-    }
-
-    /**
-     * Determine if the request has a URI that should be recorded.
-     *
-     * @param Request $request
-     * @return bool
-     */
-    public function inExceptArray(Request $request): bool
-    {
-        foreach ($this->except as $except) {
-            if ($except !== '/') {
-                $except = trim($except, '/');
-            }
-
-            if ($request->fullUrlIs($except) || $request->is($except)) {
-                return false;
-            }
+        if (! $this->shouldLog($request)) {
+            return $next($request);
         }
 
-        return true;
+        $request->attributes->set(self::STATE_ATTRIBUTE, ['started_at' => hrtime(true)]);
+
+        $this->recordRequest($request);
+
+        return $next($request);
     }
 
     /**
-     * Get request terminal name
-     *
-     * @return string
+     * Determine whether the request should be logged.
      */
-    public function getTerminalName(): string
+    private function shouldLog(Request $request): bool
+    {
+        $ignore = StarLog::getConfig('route.ignore', []);
+
+        if (! is_array($ignore)) {
+            return true;
+        }
+
+        return ! $this->matchesPath($request, $ignore['paths'] ?? [])
+            && ! $this->matchesMethod($request, $ignore['methods'] ?? [])
+            && ! $this->matchesRouteName($request, $ignore['route_names'] ?? []);
+    }
+
+    /**
+     * Record the request without allowing logging failures to affect the request.
+     */
+    private function recordRequest(Request $request): void
     {
         try {
-            $agent = new Agent();
+            $normalizer = HttpLogDataNormalizer::fromConfig(StarLog::getConfig('route', []));
 
-            $device = $agent->device();
-            $platform = $agent->platform();
+            $context = array_filter([
+                'route_name' => $this->resolveRouteName($request),
+                'headers' => $normalizer->prepareHeaders($request->headers->all(), StarLog::getConfig('route.request.headers', [])),
+                'query' => $this->buildQueryContext($request, $normalizer),
+                'body' => $this->describeRequestBody($request, $normalizer),
+            ], static fn (mixed $value): bool => $value !== null);
 
-            $data = [$device, $platform];
+            Log::info($this->formatRequestMessage($request), $context);
+        } catch (Throwable) {
+            // Route logging must never prevent an application response.
+        }
+    }
 
-            if ($agent->isDesktop()) {
-                $data[] = 'PC端';
-            } elseif ($agent->isMobile()) {
-                $data[] = '移动端';
-            } else {
-                $data[] = '未知终端';
+    /**
+     * Determine whether a request path matches an ignored path pattern.
+     */
+    private function matchesPath(Request $request, mixed $paths): bool
+    {
+        if (! is_array($paths)) {
+            return false;
+        }
+
+        foreach ($paths as $path) {
+            if (is_string($path) && $path !== '' && ($request->is($path) || $request->fullUrlIs($path))) {
+                return true;
             }
-
-            $data = array_filter($data);
-            return implode('|', $data);
-        } catch (\Exception $e) {
-            return 'Unknown';
-        }
-    }
-
-    /**
-     * Get request data and replace secret field data
-     * PS:[null] is no-data
-     *
-     * @param Request $request
-     * @return array
-     */
-    public function getRequestData(Request $request): array
-    {
-        $data = $request->all();
-
-        foreach ($data as $key => $value){
-            if (in_array($key, $this->secretField)) data_set($data, $key, '******');
-            if ($value instanceof UploadedFile) data_set($data, $key, $this->getUploadedFileInfo($value));
         }
 
-        return $data === [] ? [null] : $data;
+        return false;
     }
 
     /**
-     * Get response data, if data is json then parsing json to array
-     *
-     * @param $response
-     * @return mixed
+     * Determine whether a request method appears in the ignored method list.
      */
-    public function getResponseData($response): mixed
+    private function matchesMethod(Request $request, mixed $methods): bool
     {
-        $data = $response->getContent();
-
-        if (Str::isJson($data)) {
-            $data = json_decode($data, true);
-        } elseif ($response instanceof Response && $response->original instanceof View) {
-            $view = $response->original;
-            $viewName = $view->getName();
-            $viewData = $view->getData();
-
-            $data = ['view' => $viewName, 'data' => $viewData];
+        if (! is_array($methods)) {
+            return false;
         }
 
-        return $data;
+        return in_array($request->method(), array_filter($methods, 'is_string'), true);
     }
 
     /**
-     * Get the full time from request to response
-     *
-     * @param Request $request
-     * @param int $decimals
-     * @return string
+     * Determine whether a named route appears in the ignored route name list.
      */
-    public function getElapsedTime(Request $request, int $decimals  = 2): string
+    private function matchesRouteName(Request $request, mixed $routeNames): bool
     {
-        return number_format(microtime(true) - $request->server('REQUEST_TIME_FLOAT'), $decimals) . 's';
+        if (! is_array($routeNames)) {
+            return false;
+        }
+
+        $routeNames = array_filter($routeNames, 'is_string');
+
+        return $routeNames !== []
+            && ($routeName = $this->resolveRouteName($request)) !== null
+            && in_array($routeName, $routeNames, true);
     }
 
     /**
-     * Get all the memory consumption required from request to response
-     *
-     * @param int $precision
-     * @return string
+     * Build the request query context when enabled.
      */
-    public function getMemoryUsage(int $precision = 2): string
+    private function buildQueryContext(Request $request, HttpLogDataNormalizer $normalizer): ?array
     {
-        $size = memory_get_usage(true);
+        if (StarLog::getConfig('route.request.query', false) !== true) {
+            return null;
+        }
 
-        $unit = ['b', 'kb', 'mb', 'gb', 'tb', 'pb'];
+        $query = $normalizer->prepare($request->query());
 
-        return round($size / pow(1024, ($i = floor(log($size, 1024)))), $precision) . '' . $unit[$i];
+        return $query === [] ? null : $query;
     }
 
     /**
-     * Get uploaded file information
-     *
-     * @param UploadedFile $file
-     * @param int $sizePrecision
-     * @return array
+     * Build the request body context, including file metadata in its original field position.
      */
-    #[ArrayShape([UploadedFile::class => "array"])]
-    public function getUploadedFileInfo(UploadedFile $file, int $sizePrecision = 2): array
+    private function describeRequestBody(Request $request, HttpLogDataNormalizer $normalizer): ?array
     {
-        // 获取文件名
-        $name = $file->getClientOriginalName();
+        if (StarLog::getConfig('route.request.body', false) !== true) {
+            return null;
+        }
 
-        // 获取文件扩展名
-        $extension = $file->getClientOriginalExtension();
+        $contentType = HttpContentType::normalizeContentType($request->header('Content-Type', ''));
 
-        // 获取文件类型
-        $type = $file->getClientMimeType();
+        if (HttpContentType::isBinaryContentType($contentType)) {
+            return $normalizer->describeBody('binary', $contentType);
+        }
 
-        // 获取文件大小（单位为字节）
-        $size = $file->getSize();
+        $stream = Utils::streamFor($request->getContent(true));
 
-        // 给文件大小附加合适的单位
-        $fileSizeSuffix = $this->formatFileSize($size);
+        try {
+            $content = $normalizer->readBody($stream, $contentType);
+        } finally {
+            // The resource may belong to the request; the wrapper must not close it.
+            $stream->detach();
+        }
 
-        // 获取临时文件路径
-        $path = $file->getRealPath();
+        if ($content === null) {
+            return $normalizer->describeBody('unknown', $contentType);
+        }
 
-        return [
-            UploadedFile::class => [
-                'name' => $name,
-                'extension' => $extension,
-                'type' => $type,
-                'size' => $fileSizeSuffix,
-                'path' => $path,
-            ]
-        ];
+        if ($content === '' && $request->request->all() === [] && $request->allFiles() === []) {
+            return $normalizer->describeBody('empty');
+        }
+
+        if (str_contains($contentType ?? '', 'json')) {
+            return $normalizer->describeJsonBody($content, $contentType);
+        }
+
+        $files = $request->allFiles();
+
+        if ($files !== [] || str_contains($contentType ?? '', 'multipart/')) {
+            return $normalizer->describeDataBody(
+                'multipart',
+                array_replace_recursive($request->request->all(), $files),
+                $contentType,
+            );
+        }
+
+        $input = $request->request->all();
+
+        if (in_array($contentType, ['text/html', 'application/xhtml+xml'], true)) {
+            return $normalizer->describeHtmlBody($content, $contentType);
+        }
+
+        return $input !== []
+            ? $normalizer->describeDataBody('form', $input, $contentType)
+            : $normalizer->describeTextBody($content, $contentType);
     }
 
     /**
-     * Append appropriate units to file sizes
-     *
-     * @param $size
-     * @return string
+     * Get the request route name when a route has been resolved.
      */
-    public function formatFileSize($size): string
+    private function resolveRouteName(Request $request): ?string
     {
-        $units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
-        $factor = floor((strlen($size) - 1) / 3);
-        $formattedSize = $size / pow(1024, $factor);
+        $route = $request->route();
 
-        return sprintf("%.2f%s", $formattedSize, $units[$factor]);
+        if (! is_object($route)) {
+            try {
+                $route = app(Router::class)->getRoutes()->match($request);
+            } catch (Throwable) {
+                return null;
+            }
+        }
+
+        return is_object($route) && method_exists($route, 'getName') ? $route->getName() : null;
+    }
+
+    /**
+     * Format the request summary in the original route log style.
+     */
+    private function formatRequestMessage(Request $request): string
+    {
+        return StarLog::translate('route.request', [
+            'terminal' => $this->describeClientDevice($request),
+            'ip' => $request->ip() ?? 'unknown',
+            'method' => $request->method(),
+            'path' => $request->path(),
+        ]);
+    }
+
+    /**
+     * Describe the request terminal without storing the complete user agent.
+     */
+    private function describeClientDevice(Request $request): string
+    {
+        try {
+            $agent = new UserAgentDetector;
+            $agent->setUserAgent($request->userAgent() ?? '');
+            $details = array_filter([$agent->device(), $agent->platform()]);
+            $details[] = $agent->isDesktop() ? 'desktop' : ($agent->isMobile() ? 'mobile' : 'unknown');
+
+            return implode('|', $details);
+        } catch (Throwable) {
+            return 'unknown';
+        }
     }
 }

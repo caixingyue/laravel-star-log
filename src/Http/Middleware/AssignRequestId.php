@@ -4,31 +4,44 @@ namespace Caixingyue\LaravelStarLog\Http\Middleware;
 
 use Caixingyue\LaravelStarLog\Facades\StarLog;
 use Closure;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Request;
-use Symfony\Component\HttpFoundation\Response;
+use Illuminate\Support\Facades\Log;
+use OverflowException;
+use RuntimeException;
 
 /**
- * Generate and return a request ID
+ * Start the correlation chain for an HTTP request.
  */
 class AssignRequestId
 {
     /**
+     * The request attribute used to expose the generated ID to application code.
+     */
+    public const REQUEST_ID_ATTRIBUTE = 'requestId';
+
+    /**
      * Handle an incoming request.
      *
-     * @param Request $request
-     * @param Closure $next
-     * @return Response
+     * @throws RuntimeException
+     * @throws OverflowException
+     * @throws LockTimeoutException
      */
-    public function handle(Request $request, Closure $next): Response
+    public function handle(Request $request, Closure $next): mixed
     {
-        $requestId = StarLog::appendRequestId();
+        $shareLogContext = StarLog::getConfig('route.request_id.share_log_context', true);
 
-        $response = $next($request);
-
-        if (StarLog::getConfig('route.response_head_id', false)) {
-            $response->headers->set('Request-Id', $requestId);
+        if ($shareLogContext) {
+            Log::shareContext(['request_id' => null]);
         }
 
-        return $response;
+        $requestId = StarLog::startRequestCorrelation();
+        $request->attributes->set(self::REQUEST_ID_ATTRIBUTE, $requestId);
+
+        if ($shareLogContext) {
+            Log::shareContext(['request_id' => $requestId]);
+        }
+
+        return $next($request);
     }
 }

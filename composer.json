@@ -1,6 +1,6 @@
 {
     "name": "caixingyue/laravel-star-log",
-    "description": "This is a package that enhances the Laravel log format. It can inject request ID, craftsman ID, queue ID, and supports enhanced capabilities such as routing request log, HTTP client request log, SQL Query log, etc.",
+    "description": "This package enhances the Laravel log format. It can inject request IDs, Artisan IDs, and queue IDs, and supports route request and response logging, HTTP client request and response logging, SQL query logging, and more.",
     "keywords": [
         "caixingyue",
         "laravel",
@@ -20,13 +20,22 @@
     ],
     "require": {
         "php": "^8.2",
-        "spatie/laravel-package-tools": "^1.16",
-        "illuminate/contracts": "^10.0||^11.0",
-        "mobiledetect/mobiledetectlib": "^4.8"
+        "php-64bit": "^8.2",
+        "ext-dom": "*",
+        "ext-libxml": "*",
+        "guzzlehttp/guzzle": "^7.15.5",
+        "guzzlehttp/psr7": "^2.13.1",
+        "laravel/framework": "^12.69 || ^13.30",
+        "mobiledetect/mobiledetectlib": "^4.8",
+        "spatie/laravel-package-tools": "^1.16"
     },
     "require-dev": {
-        "nunomaduro/collision": "^8.1.1||^7.10.0",
-        "orchestra/testbench": "^9.0.0||^8.22.0"
+        "ext-pdo_sqlite": "*",
+        "laravel/pint": "^1.18",
+        "mockery/mockery": "^1.6",
+        "nunomaduro/collision": "^8.1 || ^9.0 || ^10.0",
+        "orchestra/testbench": "^10.0 || ^11.0",
+        "phpunit/phpunit": "^11.5.50 || ^12.5.8"
     },
     "autoload": {
         "psr-4": {
@@ -41,7 +50,9 @@
     "scripts": {
         "post-autoload-dump": [
             "@php vendor/bin/testbench package:discover --ansi"
-        ]
+        ],
+        "test": "vendor/bin/phpunit",
+        "format": "vendor/bin/pint"
     },
     "config": {
         "sort-packages": true,
@@ -59,6 +70,6 @@
             }
         }
     },
-    "minimum-stability": "dev",
+    "minimum-stability": "stable",
     "prefer-stable": true
 }
