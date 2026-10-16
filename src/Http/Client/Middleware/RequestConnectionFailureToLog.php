@@ -29,8 +29,14 @@ final class RequestConnectionFailureToLog
     {
         return function (RequestInterface $request, array $options) use ($handler): PromiseInterface {
             $config = app(HttpClientLogSnapshots::class)->forRequest($request)->config;
+
+            if (($config['enable'] ?? false) !== true || ($config['connection_failure']['enable'] ?? true) !== true) {
+                return $handler($request, $options);
+            }
+
             $errorNumber = null;
             $onStats = $options['on_stats'] ?? null;
+
             $options['on_stats'] = static function (TransferStats $stats) use (&$errorNumber, $onStats): void {
                 $error = $stats->getHandlerErrorData();
                 $errorNumber = is_int($error) ? $error : null;
@@ -62,17 +68,7 @@ final class RequestConnectionFailureToLog
     private function write(RequestInterface $request, Throwable $exception, array $config, ?int $errorNumber): void
     {
         try {
-            if (! ($exception instanceof ConnectException || $exception instanceof NetworkException || $exception instanceof RequestException)) {
-                return;
-            }
-
-            // Guzzle 7 exposes hasResponse(); Guzzle 8 uses response-specific exceptions.
-            if ((method_exists($exception, 'hasResponse') && $exception->hasResponse())
-                || (method_exists($exception, 'getResponse') && $exception->getResponse() !== null)) {
-                return;
-            }
-
-            if (($config['enable'] ?? false) !== true || ($config['connection_failure']['enable'] ?? true) !== true) {
+            if (! $this->isConnectionFailure($exception)) {
                 return;
             }
 
@@ -89,18 +85,39 @@ final class RequestConnectionFailureToLog
     }
 
     /**
-     * Describe a transport failure without exposing its raw error details.
+     * Recognize response-less failures across Guzzle's exception hierarchies.
      */
-    private function failureReason(Throwable $exception, ?int $errorNumber): string
+    private function isConnectionFailure(Throwable $exception): bool
     {
-        // Guzzle 8 reports transport metadata through on_stats rather than exceptions.
+        if (! ($exception instanceof ConnectException || $exception instanceof NetworkException || $exception instanceof RequestException)) {
+            return false;
+        }
+
+        return ! method_exists($exception, 'getResponse') || $exception->getResponse() === null;
+    }
+
+    /**
+     * Resolve transport error numbers from statistics or Guzzle 7 metadata.
+     */
+    private function resolveErrorNumber(Throwable $exception, ?int $errorNumber): ?int
+    {
         $errorNumber ??= method_exists($exception, 'getHandlerContext')
             ? ($exception->getHandlerContext()['errno'] ?? null)
             : null;
 
+        return is_int($errorNumber) ? $errorNumber : null;
+    }
+
+    /**
+     * Describe a transport failure without exposing its raw error details.
+     */
+    private function failureReason(Throwable $exception, ?int $errorNumber): string
+    {
         if ($exception instanceof NetworkTimeoutException || $exception instanceof ConnectTimeoutException) {
-            $errorNumber = 28;
+            return StarLog::translate('client.connection_failure_reasons.timeout');
         }
+
+        $errorNumber = $this->resolveErrorNumber($exception, $errorNumber);
 
         return match ($errorNumber) {
             5, 6 => StarLog::translate('client.connection_failure_reasons.name_resolution'),

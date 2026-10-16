@@ -6,8 +6,11 @@ use Caixingyue\LaravelStarLog\Http\Client\Middleware\RequestConnectionFailureToL
 use Caixingyue\LaravelStarLog\StarLog as StarLogImplementation;
 use Caixingyue\LaravelStarLog\Tests\TestCase;
 use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Exception\ConnectTimeoutException;
+use GuzzleHttp\Exception\NetworkTimeoutException;
 use GuzzleHttp\Exception\RequestException;
 use GuzzleHttp\Promise\Create;
+use GuzzleHttp\Promise\Promise;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
 use GuzzleHttp\TransferStats;
@@ -72,6 +75,29 @@ final class RequestConnectionFailureToLogTest extends TestCase
         $exception = new ConnectException('connection failed', $request);
 
         $this->assertSame($exception, $this->reject($request, $exception));
+
+        Log::shouldNotHaveReceived('warning');
+    }
+
+    public function test_disabled_logging_preserves_the_original_handler_options_and_promise(): void
+    {
+        $request = new Request('GET', 'https://example.test');
+        $promise = Create::promiseFor(new Response(200));
+        $options = ['on_stats' => static function (): void {}, 'timeout' => 2];
+
+        foreach (['starlog.http_client.enable', 'starlog.http_client.connection_failure.enable'] as $setting) {
+            config()->set('starlog.http_client', ['enable' => true]);
+            config()->set($setting, false);
+            $this->refreshStarLog();
+            $handler = (new RequestConnectionFailureToLog)(function ($receivedRequest, $receivedOptions) use ($request, $options, $promise) {
+                $this->assertSame($request, $receivedRequest);
+                $this->assertSame($options, $receivedOptions);
+
+                return $promise;
+            });
+
+            $this->assertSame($promise, $handler($request, $options));
+        }
 
         Log::shouldNotHaveReceived('warning');
     }
@@ -152,7 +178,7 @@ final class RequestConnectionFailureToLogTest extends TestCase
     {
         $request = new Request('GET', 'https://example.test');
         $failure = new ConnectException('private details', $request);
-        $pending = new \GuzzleHttp\Promise\Promise;
+        $pending = new Promise;
         $onStats = null;
         $handler = (new RequestConnectionFailureToLog)(static function ($request, $options) use ($pending, &$onStats) {
             $onStats = $options['on_stats'];
@@ -175,13 +201,13 @@ final class RequestConnectionFailureToLogTest extends TestCase
 
     public function test_records_guzzle_network_timeouts_without_stats(): void
     {
-        if (! class_exists(\GuzzleHttp\Exception\NetworkTimeoutException::class)) {
+        if (! class_exists(NetworkTimeoutException::class)) {
             $this->markTestSkipped('NetworkTimeoutException is available in Guzzle 8.');
         }
 
         $request = new Request('GET', 'https://example.test');
 
-        foreach ([\GuzzleHttp\Exception\NetworkTimeoutException::class, \GuzzleHttp\Exception\ConnectTimeoutException::class] as $exceptionClass) {
+        foreach ([NetworkTimeoutException::class, ConnectTimeoutException::class] as $exceptionClass) {
             $failure = new $exceptionClass('private details', $request);
             $this->assertSame($failure, $this->reject($request, $failure));
         }
@@ -203,7 +229,9 @@ final class RequestConnectionFailureToLogTest extends TestCase
     private function reject(Request $request, Throwable $exception, ?int $errno = null): Throwable
     {
         $handler = (new RequestConnectionFailureToLog)(static function ($request, $options) use ($exception, $errno) {
-            $options['on_stats'](new TransferStats($request, null, 0, $errno));
+            if (isset($options['on_stats'])) {
+                $options['on_stats'](new TransferStats($request, null, 0, $errno));
+            }
 
             return Create::rejectionFor($exception);
         });

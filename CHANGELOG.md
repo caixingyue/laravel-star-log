@@ -2,12 +2,13 @@
 
 All notable changes to `laravel-star-log` will be documented in this file.
 
-## Unreleased
+## 2.0.1 (2026-10-16)
 
 ### Changed
 
 - Support Guzzle 8.0.1+ (8.x) and PSR-7 3.x alongside the existing Guzzle 7 and PSR-7 2 ranges.
 - Keep Guzzle 7 coverage on Laravel 12 and 13 and add Guzzle 8 coverage on Laravel 13, including lowest supported dependency versions.
+- Bypass failure-log middleware callbacks when HTTP client or connection-failure logging is disabled.
 
 ### Fixed
 
