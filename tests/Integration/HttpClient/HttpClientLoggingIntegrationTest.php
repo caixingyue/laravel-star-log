@@ -9,6 +9,7 @@ use GuzzleHttp\Promise\Create;
 use GuzzleHttp\Psr7\NoSeekStream;
 use GuzzleHttp\Psr7\Response;
 use GuzzleHttp\Psr7\Utils;
+use GuzzleHttp\TransferStats;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\Http;
@@ -56,8 +57,10 @@ final class HttpClientLoggingIntegrationTest extends TestCase
     public function test_registered_failure_middleware_logs_synchronous_failures_once(): void
     {
         try {
-            Http::setHandler(function ($request) {
-                throw new ConnectException('private transport details', $request, null, ['errno' => 28]);
+            Http::setHandler(function ($request, $options) {
+                $options['on_stats'](new TransferStats($request, null, 0, 28));
+
+                throw new ConnectException('private transport details', $request);
             })->get('https://alice:password@example.test?token=secret');
             $this->fail('The connection exception must reach the caller.');
         } catch (ConnectionException $exception) {
@@ -69,7 +72,11 @@ final class HttpClientLoggingIntegrationTest extends TestCase
 
     public function test_async_rejection_logs_once_and_preserves_laravel_connection_failure(): void
     {
-        $failure = Http::async()->setHandler(fn ($request) => Create::rejectionFor(new ConnectException('private details', $request, null, ['errno' => 28])))
+        $failure = Http::async()->setHandler(function ($request, $options) {
+            $options['on_stats'](new TransferStats($request, null, 0, 28));
+
+            return Create::rejectionFor(new ConnectException('private details', $request));
+        })
             ->get('https://example.test')->wait();
 
         $this->assertInstanceOf(ConnectionException::class, $failure);
@@ -81,9 +88,11 @@ final class HttpClientLoggingIntegrationTest extends TestCase
     public function test_retry_recovers_after_one_logged_failure(): void
     {
         $attempts = 0;
-        $response = Http::retry(2, 0)->setHandler(function ($request) use (&$attempts) {
+        $response = Http::retry(2, 0)->setHandler(function ($request, $options) use (&$attempts) {
+            $options['on_stats'](new TransferStats($request, null, 0, $attempts === 0 ? 28 : null));
+
             return ++$attempts === 1
-                ? Create::rejectionFor(new ConnectException('private details', $request, null, ['errno' => 28]))
+                ? Create::rejectionFor(new ConnectException('private details', $request))
                 : Create::promiseFor(new Response(200, ['Content-Type' => 'application/json'], '{"ok":true}'));
         })->get('https://example.test');
 

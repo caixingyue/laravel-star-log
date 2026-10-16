@@ -120,7 +120,7 @@ class UserAgentDetector extends MobileDetect
     {
         return $this->rememberDetection('starlog.desktop', function () {
             if (
-                $this->getUserAgent() === static::$cloudFrontUA
+                $this->getUserAgent() === 'Amazon CloudFront'
                 && $this->getHttpHeader('HTTP_CLOUDFRONT_IS_DESKTOP_VIEWER') === 'true'
             ) {
                 return true;

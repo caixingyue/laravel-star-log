@@ -2,6 +2,18 @@
 
 All notable changes to `laravel-star-log` will be documented in this file.
 
+## Unreleased
+
+### Changed
+
+- Support Guzzle 8.0.1+ (8.x) and PSR-7 3.x alongside the existing Guzzle 7 and PSR-7 2 ranges.
+- Keep Guzzle 7 coverage on Laravel 12 and 13 and add Guzzle 8 coverage on Laravel 13, including lowest supported dependency versions.
+
+### Fixed
+
+- Keep desktop user-agent detection compatible with Mobile Detect 4.8, which does not expose the newer CloudFront user-agent property.
+- Preserve connection-failure logs with Guzzle 8's exception hierarchy and use transport statistics for failure reasons without replacing the application's statistics callback.
+
 ## 2.0.0 (2026-10-05)
 
 This is a breaking release. Review the upgrade guide below before updating from 1.x.

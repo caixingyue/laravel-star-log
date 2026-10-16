@@ -14,7 +14,7 @@ Laravel Star Log gives Laravel logs a consistent format and adds optional loggin
 | 12.69+ (12.x) | 8.2 |
 | 13.30+ (13.x) | 8.3 |
 
-A 64-bit PHP build and the DOM and libxml extensions are required. Composer also requires Guzzle 7.15.5+ (7.x) and PSR-7 2.13.1+ (2.x).
+A 64-bit PHP build and the DOM and libxml extensions are required. Composer supports Guzzle 7.15.5+ (7.x) or 8.0.1+ (8.x), and PSR-7 2.13.1+ (2.x) or 3.x. Laravel 12 requires Guzzle 7; Guzzle 8 is supported with Laravel 13. The available PSR-7 versions also depend on the installed Guzzle version.
 
 Request, command, and job correlation require a persistent default cache store with atomic locks and increments, shared by all workers. See [Correlating commands and jobs](#correlating-commands-and-jobs) for ID availability and cache requirements.
 

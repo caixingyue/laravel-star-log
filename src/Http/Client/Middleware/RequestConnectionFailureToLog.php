@@ -7,8 +7,12 @@ use Caixingyue\LaravelStarLog\Http\Client\HttpClientLogSnapshots;
 use Caixingyue\LaravelStarLog\Support\HttpLogDataNormalizer;
 use Closure;
 use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Exception\ConnectTimeoutException;
+use GuzzleHttp\Exception\NetworkException;
+use GuzzleHttp\Exception\NetworkTimeoutException;
 use GuzzleHttp\Exception\RequestException;
 use GuzzleHttp\Promise\PromiseInterface;
+use GuzzleHttp\TransferStats;
 use Illuminate\Support\Facades\Log;
 use Psr\Http\Message\RequestInterface;
 use Throwable;
@@ -25,17 +29,27 @@ final class RequestConnectionFailureToLog
     {
         return function (RequestInterface $request, array $options) use ($handler): PromiseInterface {
             $config = app(HttpClientLogSnapshots::class)->forRequest($request)->config;
+            $errorNumber = null;
+            $onStats = $options['on_stats'] ?? null;
+            $options['on_stats'] = static function (TransferStats $stats) use (&$errorNumber, $onStats): void {
+                $error = $stats->getHandlerErrorData();
+                $errorNumber = is_int($error) ? $error : null;
+
+                if ($onStats !== null) {
+                    $onStats($stats);
+                }
+            };
 
             try {
                 $promise = $handler($request, $options);
             } catch (Throwable $exception) {
-                $this->write($request, $exception, $config);
+                $this->write($request, $exception, $config, $errorNumber);
 
                 throw $exception;
             }
 
-            return $promise->otherwise(function (Throwable $exception) use ($request, $config): never {
-                $this->write($request, $exception, $config);
+            return $promise->otherwise(function (Throwable $exception) use ($request, $config, &$errorNumber): never {
+                $this->write($request, $exception, $config, $errorNumber);
 
                 throw $exception;
             });
@@ -45,10 +59,16 @@ final class RequestConnectionFailureToLog
     /**
      * Write one safe connection failure log entry.
      */
-    private function write(RequestInterface $request, Throwable $exception, array $config): void
+    private function write(RequestInterface $request, Throwable $exception, array $config, ?int $errorNumber): void
     {
         try {
-            if (! ($exception instanceof ConnectException || ($exception instanceof RequestException && ! $exception->hasResponse()))) {
+            if (! ($exception instanceof ConnectException || $exception instanceof NetworkException || $exception instanceof RequestException)) {
+                return;
+            }
+
+            // Guzzle 7 exposes hasResponse(); Guzzle 8 uses response-specific exceptions.
+            if ((method_exists($exception, 'hasResponse') && $exception->hasResponse())
+                || (method_exists($exception, 'getResponse') && $exception->getResponse() !== null)) {
                 return;
             }
 
@@ -61,7 +81,7 @@ final class RequestConnectionFailureToLog
             Log::warning(StarLog::translate('client.connection_failed', [
                 'method' => $request->getMethod(),
                 'url' => $normalizer->prepareUrl((string) $request->getUri(), ($config['request']['query'] ?? true) === true),
-                'reason' => $this->failureReason($exception),
+                'reason' => $this->failureReason($exception, $errorNumber),
             ]));
         } catch (Throwable) {
             // Logging must never affect the failed HTTP request.
@@ -71,9 +91,16 @@ final class RequestConnectionFailureToLog
     /**
      * Describe a transport failure without exposing its raw error details.
      */
-    private function failureReason(ConnectException|RequestException $exception): string
+    private function failureReason(Throwable $exception, ?int $errorNumber): string
     {
-        $errorNumber = $exception->getHandlerContext()['errno'] ?? null;
+        // Guzzle 8 reports transport metadata through on_stats rather than exceptions.
+        $errorNumber ??= method_exists($exception, 'getHandlerContext')
+            ? ($exception->getHandlerContext()['errno'] ?? null)
+            : null;
+
+        if ($exception instanceof NetworkTimeoutException || $exception instanceof ConnectTimeoutException) {
+            $errorNumber = 28;
+        }
 
         return match ($errorNumber) {
             5, 6 => StarLog::translate('client.connection_failure_reasons.name_resolution'),

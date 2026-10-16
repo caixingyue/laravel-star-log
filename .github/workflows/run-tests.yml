@@ -19,22 +19,49 @@ jobs:
         include:
           - php: '8.2'
             laravel: '^12.69'
+            guzzle: '^7.15.5'
+            psr7: '^2.13.1'
           - php: '8.2'
             laravel: '^12.69'
+            guzzle: '^7.15.5'
+            psr7: '^2.13.1'
             prefer_lowest: '--prefer-lowest'
           - php: '8.5'
             laravel: '^12.69'
+            guzzle: '^7.15.5'
+            psr7: '^2.13.1'
           - php: '8.3'
             laravel: '^13.30'
+            guzzle: '^7.15.5'
+            psr7: '^2.13.1'
           - php: '8.3'
             laravel: '^13.30'
+            guzzle: '^7.15.5'
+            psr7: '^2.13.1'
             prefer_lowest: '--prefer-lowest'
           - php: '8.4'
             laravel: '^13.30'
+            guzzle: '^7.15.5'
+            psr7: '^2.13.1'
           - php: '8.5'
             laravel: '^13.30'
+            guzzle: '^7.15.5'
+            psr7: '^2.13.1'
+          - php: '8.3'
+            laravel: '^13.30'
+            guzzle: '^8.0.1'
+            psr7: '^3.0'
+            prefer_lowest: '--prefer-lowest'
+          - php: '8.3'
+            laravel: '^13.30'
+            guzzle: '^8.0.1'
+            psr7: '^3.0'
+          - php: '8.5'
+            laravel: '^13.30'
+            guzzle: '^8.0.1'
+            psr7: '^3.0'
 
-    name: PHP ${{ matrix.php }} / Laravel ${{ matrix.laravel }} ${{ matrix.prefer_lowest }}
+    name: PHP ${{ matrix.php }} / Laravel ${{ matrix.laravel }} / Guzzle ${{ matrix.guzzle }} / PSR-7 ${{ matrix.psr7 }} ${{ matrix.prefer_lowest }}
 
     steps:
       - name: Checkout
@@ -52,8 +79,8 @@ jobs:
       - name: Validate package
         run: composer validate --strict
 
-      - name: Select Laravel version
-        run: composer require --no-update "laravel/framework:${{ matrix.laravel }}"
+      - name: Select dependency versions
+        run: composer require --no-update "laravel/framework:${{ matrix.laravel }}" "guzzlehttp/guzzle:${{ matrix.guzzle }}" "guzzlehttp/psr7:${{ matrix.psr7 }}"
 
       - name: Install dependencies
         run: composer update --prefer-dist --no-interaction --no-progress --with-all-dependencies ${{ matrix.prefer_lowest }}
